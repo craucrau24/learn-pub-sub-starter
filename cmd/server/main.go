@@ -15,18 +15,23 @@ func main() {
 	cxnStr := "amqp://guest:guest@localhost:5672/"
 
 	fmt.Println("RabbitMQ connection attempt...")
-	cxn, err := amqp.Dial(cxnStr)
+	conn, err := amqp.Dial(cxnStr)
 	if err != nil {
 		log.Fatalf("Couldn't connect to rabbitMQ server: %v\n", err)
 	}
-	defer cxn.Close()
+	defer conn.Close()
 	fmt.Println("RabbitMQ connection successful.")
 
-	channel, err := cxn.Channel()
-	if err != nil {
-		log.Fatalf("Couldn't create channel: %v\n", err)
-	}
+	// channel, err := conn.Channel()
+	// if err != nil {
+	// 	log.Fatalf("Couldn't create channel: %v\n", err)
+	// }
 	
+	channel, _, err := pubsub.DeclareAndBind(conn, routing.ExchangePerilTopic, routing.GameLogSlug, fmt.Sprintf("%s.*", routing.GameLogSlug), pubsub.DurableQueueType)
+	if err != nil {
+		log.Fatalf("Couldn't create %s queue: %v\n", routing.GameLogSlug, err)
+	}
+
 	gamelogic.PrintServerHelp()
 	out:
 	for {
