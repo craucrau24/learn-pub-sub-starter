@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
 
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
@@ -34,9 +32,38 @@ func main() {
 		log.Fatalf("Couldn't create channel and queue: %v\n", err)
 	}
 
-	// wait for ctrl+c
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt)
-	<-signalChan
-	fmt.Println("Interruption signal received. Closing connection.")
+	state := gamelogic.NewGameState(name)
+
+	out:
+	for {
+		words := gamelogic.GetInput()
+		if len(words) == 0 {
+			continue
+		}
+
+		switch words[0] {
+		case "spawn":  {
+			state.CommandSpawn(words)
+		}
+		case "move": {
+			state.CommandMove(words)
+		}
+		case "status": {
+			state.CommandStatus()
+		}
+		case "help": {
+			gamelogic.PrintClientHelp()
+		}
+		case "spam": {
+			fmt.Println("Spamming not allowed yet!")
+		}
+		case "quit": {
+			gamelogic.PrintQuit()
+			break out
+		}
+		default: {
+			fmt.Println("Unknown command")
+		}
+		}
+	}
 }
