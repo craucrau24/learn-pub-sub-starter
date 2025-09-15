@@ -8,10 +8,10 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type simpleQueueType string 
+type SimpleQueueType string 
 const (
-	DurableQueueType simpleQueueType = "durable"
-	TransientQueueType simpleQueueType = "transient"
+	DurableQueueType SimpleQueueType = "durable"
+	TransientQueueType SimpleQueueType = "transient"
 
 )
 
@@ -28,7 +28,7 @@ func DeclareAndBind(
 	exchange,
 	queueName,
 	key string,
-	queueType simpleQueueType, // an enum to represent "durable" or "transient"
+	queueType SimpleQueueType, // an enum to represent "durable" or "transient"
 ) (*amqp.Channel, amqp.Queue, error) {
 		channel, err := conn.Channel()
 		if err != nil {
@@ -46,4 +46,35 @@ func DeclareAndBind(
 		}
 
 		return channel, queue, nil
+}
+
+func SubscribeJSON[T any](
+    conn *amqp.Connection,
+    exchange,
+    queueName,
+    key string,
+    queueType SimpleQueueType, // an enum to represent "durable" or "transient"
+    handler func(T),
+) error {
+	channel, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
+	if err != nil {
+		return fmt.Errorf("error while binding queue: %w", err)
+	}
+	deliveries, err := channel.Consume(queueName, "", false, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("error while consuming queue: %w", err)
+	}
+
+	go func() {
+		for d := range deliveries {
+			var value T
+			err := json.Unmarshal(d.Body, &value)
+			if err == nil {
+				handler(value)
+			}
+			d.Ack(false)
+		}
+	}()
+
+	return nil
 }

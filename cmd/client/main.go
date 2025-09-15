@@ -10,6 +10,13 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
+	return func(state routing.PlayingState) {
+		defer fmt.Print("> ")
+		gs.HandlePause(state)
+	}
+}
+
 func main() {
 	fmt.Println("Starting Peril client...")
 	connStr := "amqp://guest:guest@localhost:5672/"
@@ -27,12 +34,12 @@ func main() {
 		log.Fatalf("Unexpected error with name retrieval: %v\n", err)
 	}
 	
-	_, _, err = pubsub.DeclareAndBind(conn, routing.ExchangePerilDirect, fmt.Sprintf("%s.%s", routing.PauseKey, name), routing.PauseKey, pubsub.TransientQueueType)
+	state := gamelogic.NewGameState(name)
+	err = pubsub.SubscribeJSON(conn, routing.ExchangePerilDirect, fmt.Sprintf("%s.%s", routing.PauseKey, name), routing.PauseKey, pubsub.TransientQueueType, handlerPause(state))
 	if err != nil {
-		log.Fatalf("Couldn't create channel and queue: %v\n", err)
+		log.Fatalf("Couldn't create subscribe to queue: %v\n", err)
 	}
 
-	state := gamelogic.NewGameState(name)
 
 	out:
 	for {
@@ -46,7 +53,10 @@ func main() {
 			state.CommandSpawn(words)
 		}
 		case "move": {
-			state.CommandMove(words)
+			_, err := state.CommandMove(words)
+			if err != nil {
+				fmt.Printf("Couldn't move unit(s): %v\n", err)
+			}
 		}
 		case "status": {
 			state.CommandStatus()
