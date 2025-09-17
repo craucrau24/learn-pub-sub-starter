@@ -42,7 +42,7 @@ func DeclareAndBind(
 			return nil, amqp.Queue{}, fmt.Errorf("error during channel creation: %w", err)
 		}
 
-		queue, err := channel.QueueDeclare(queueName, queueType == "durable", queueType == "transient", queueType == "transient", false, nil)
+		queue, err := channel.QueueDeclare(queueName, queueType == "durable", queueType == "transient", queueType == "transient", false, amqp.Table{"x-dead-letter-exchange": "peril_dlx"})
 		if err != nil {
 			return nil, amqp.Queue{}, fmt.Errorf("error during queue declaration: %w", err)
 		}
