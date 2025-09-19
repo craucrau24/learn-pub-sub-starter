@@ -3,12 +3,18 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+func publishLog(channel *amqp.Channel, message, username string) error {
+	log := routing.GameLog{Username: username, Message: message, CurrentTime: time.Now()}
+	return pubsub.PublishGob(channel, routing.ExchangePerilTopic, fmt.Sprintf("%s.%s", routing.GameLogSlug, username), log)
+}
 
 func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) pubsub.AckType {
 	return func(state routing.PlayingState) pubsub.AckType {
@@ -18,11 +24,11 @@ func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) pubsub.Ack
 	}
 }
 
-func handlerMove(gs *gamelogic.GameState, conn *amqp.Connection) func(gamelogic.ArmyMove) pubsub.AckType {
-	channel, err := conn.Channel()
-	if err != nil {
-		log.Fatalf("error while creating channel in handlerMove(): %v\n", err)
-	}
+func handlerMove(gs *gamelogic.GameState, channel *amqp.Channel) func(gamelogic.ArmyMove) pubsub.AckType {
+	// channel, err := conn.Channel()
+	// if err != nil {
+	// 	log.Fatalf("error while creating channel in handlerMove(): %v\n", err)
+	// }
 
 	return func(move gamelogic.ArmyMove) pubsub.AckType {
 		defer fmt.Print("> ")
@@ -45,22 +51,38 @@ func handlerMove(gs *gamelogic.GameState, conn *amqp.Connection) func(gamelogic.
 	}
 }
 
-func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.AckType {
+func handlerWar(gs *gamelogic.GameState, channel *amqp.Channel) func(gamelogic.RecognitionOfWar) pubsub.AckType {
 	return func(row gamelogic.RecognitionOfWar) pubsub.AckType {
 		defer fmt.Println("> ")
 
-		outcome, _, _ := gs.HandleWar(row)
+		outcome, winner, loser := gs.HandleWar(row)
+		username := row.Attacker.Username
 		switch outcome {
 		case gamelogic.WarOutcomeNotInvolved:
 			return pubsub.NackRequeue
 		case gamelogic.WarOutcomeNoUnits:
 			return pubsub.NackDiscard
 		case gamelogic.WarOutcomeOpponentWon:
-			return pubsub.Ack
+			err := publishLog(channel, fmt.Sprintf("%s won a war against %s", winner, loser), username)
+			if err != nil {
+				return pubsub.NackRequeue
+			} else {
+				return pubsub.Ack
+			}
 		case gamelogic.WarOutcomeYouWon:
-			return pubsub.Ack
+			err := publishLog(channel, fmt.Sprintf("%s won a war against %s", winner, loser), username)
+			if err != nil {
+				return pubsub.NackRequeue
+			} else {
+				return pubsub.Ack
+			}
 		case gamelogic.WarOutcomeDraw:
-			return pubsub.Ack
+			err := publishLog(channel, fmt.Sprintf("A war between %s and %s resulted in a draw", winner, loser), username)
+			if err != nil {
+				return pubsub.NackRequeue
+			} else {
+				return pubsub.Ack
+			}
 		default:
 			fmt.Println("Unknown war outcome in war handler")
 			return pubsub.NackDiscard
@@ -85,26 +107,25 @@ func main() {
 		log.Fatalf("Unexpected error with name retrieval: %v\n", err)
 	}
 	
-	state := gamelogic.NewGameState(name)
-	err = pubsub.SubscribeJSON(conn, routing.ExchangePerilDirect, fmt.Sprintf("%s.%s", routing.PauseKey, name), routing.PauseKey, pubsub.TransientQueueType, handlerPause(state))
-	if err != nil {
-		log.Fatalf("Couldn't create subscribe to queue `%s`: %v\n", fmt.Sprintf("%s.%s", routing.PauseKey, name), err)
-	}
-	err = pubsub.SubscribeJSON(conn, string(routing.ExchangePerilTopic), fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, name), fmt.Sprintf("%s.*", routing.ArmyMovesPrefix), pubsub.TransientQueueType, handlerMove(state, conn))
-	if err != nil {
-		log.Fatalf("Couldn't create subscribe to queue `%s`: %v\n", fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, name), err)
-	}
-
-	err = pubsub.SubscribeJSON(conn, string(routing.ExchangePerilTopic), "war", fmt.Sprintf("%s.*", routing.WarRecognitionsPrefix), pubsub.DurableQueueType, handlerWar(state))
-	if err != nil {
-		log.Fatalf("Couldn't create subscribe to queue `%s`: %v\n", "war", err)
-	}
-
 	channel, err := conn.Channel()
 	if err != nil {
 		log.Fatalf("Couldn't open channel for publishing%v\n", err)
 	}
 
+	state := gamelogic.NewGameState(name)
+	err = pubsub.SubscribeJSON(conn, routing.ExchangePerilDirect, fmt.Sprintf("%s.%s", routing.PauseKey, name), routing.PauseKey, pubsub.TransientQueueType, handlerPause(state))
+	if err != nil {
+		log.Fatalf("Couldn't create subscribe to queue `%s`: %v\n", fmt.Sprintf("%s.%s", routing.PauseKey, name), err)
+	}
+	err = pubsub.SubscribeJSON(conn, string(routing.ExchangePerilTopic), fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, name), fmt.Sprintf("%s.*", routing.ArmyMovesPrefix), pubsub.TransientQueueType, handlerMove(state, channel))
+	if err != nil {
+		log.Fatalf("Couldn't create subscribe to queue `%s`: %v\n", fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, name), err)
+	}
+
+	err = pubsub.SubscribeJSON(conn, string(routing.ExchangePerilTopic), "war", fmt.Sprintf("%s.*", routing.WarRecognitionsPrefix), pubsub.DurableQueueType, handlerWar(state, channel))
+	if err != nil {
+		log.Fatalf("Couldn't create subscribe to queue `%s`: %v\n", "war", err)
+	}
 	out:
 	for {
 		words := gamelogic.GetInput()

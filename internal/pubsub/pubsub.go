@@ -1,7 +1,9 @@
 package pubsub
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 
@@ -28,6 +30,16 @@ func PublishJSON[T any](ch *amqp.Channel, exchange, key string, val T) error {
 		return fmt.Errorf("error while marshalling val to JSON: %w", err)
 	}
 	return ch.PublishWithContext(context.Background(), exchange, key, false, false, amqp.Publishing{ContentType: "application/json", Body: jsonData})
+}
+
+func PublishGob[T any](ch *amqp.Channel, exchange, key string, val T) error {
+	var data bytes.Buffer
+	enc := gob.NewEncoder(&data)
+	err := enc.Encode(val)
+	if err != nil {
+		return fmt.Errorf("error while marshalling val to gob: %w", err)
+	}
+	return ch.PublishWithContext(context.Background(), exchange, key, false, false, amqp.Publishing{ContentType: "application/gob", Body: data.Bytes()})
 }
 
 func DeclareAndBind(
