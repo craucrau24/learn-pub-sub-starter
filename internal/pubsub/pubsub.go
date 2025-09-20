@@ -80,6 +80,7 @@ func subscribe[T any](
 	if err != nil {
 		return fmt.Errorf("error while binding queue: %w", err)
 	}
+	channel.Qos(10, 0, false)
 	deliveries, err := channel.Consume(queueName, "", false, false, false, false, nil)
 	if err != nil {
 		return fmt.Errorf("error while consuming queue: %w", err)
@@ -91,8 +92,12 @@ func subscribe[T any](
 			if err == nil {
 				switch handler(value) {
 				case Ack:
-					d.Ack(false)
-					// fmt.Println("Message acknowledged")
+					err := d.Ack(false)
+					if err != nil {
+						fmt.Printf("err while acknowledge: %v", err)
+					} else {
+					 fmt.Println("Message acknowledged")
+					}
 					continue
 				case NackRequeue:
 					d.Nack(false, true)
