@@ -67,13 +67,14 @@ func DeclareAndBind(
 		return channel, queue, nil
 }
 
-func SubscribeJSON[T any](
-    conn *amqp.Connection,
-    exchange,
-    queueName,
-    key string,
-    queueType SimpleQueueType, // an enum to represent "durable" or "transient"
-    handler func(T) AckType,
+func subscribe[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	queueType SimpleQueueType,
+	handler func(T) AckType,
+	unmarshaller func([]byte) (T, error),
 ) error {
 	channel, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
 	if err != nil {
@@ -86,28 +87,59 @@ func SubscribeJSON[T any](
 
 	go func() {
 		for d := range deliveries {
-			var value T
-			err := json.Unmarshal(d.Body, &value)
+			value, err := unmarshaller(d.Body)
 			if err == nil {
 				switch handler(value) {
 				case Ack:
 					d.Ack(false)
-					fmt.Println("Message acknowledged")
+					// fmt.Println("Message acknowledged")
 					continue
 				case NackRequeue:
 					d.Nack(false, true)
-					fmt.Println("Message requeued")
+					// fmt.Println("Message requeued")
 					continue
 				case NackDiscard:
 					d.Nack(false, false)
-					fmt.Println("Message discarded")
+					// fmt.Println("Message discarded")
 					continue
 				}
 			}
 			d.Nack(false, false)
-			fmt.Println("Error decoding message")
+			// fmt.Println("Error decoding message")
 		}
 	}()
 
 	return nil
+}
+
+func SubscribeJSON[T any](
+    conn *amqp.Connection,
+    exchange,
+    queueName,
+    key string,
+    queueType SimpleQueueType, // an enum to represent "durable" or "transient"
+    handler func(T) AckType,
+) error {
+	return subscribe(conn, exchange, queueName, key, queueType, handler, func(b []byte) (T, error) {
+		var value T
+		err := json.Unmarshal(b, &value)
+		return value, err
+	})
+}
+
+func SubscribeGob[T any](
+    conn *amqp.Connection,
+    exchange,
+    queueName,
+    key string,
+    queueType SimpleQueueType, // an enum to represent "durable" or "transient"
+    handler func(T) AckType,
+) error {
+	return subscribe(conn, exchange, queueName, key, queueType, handler, func(b []byte) (T, error) {
+		buffer := bytes.NewBuffer(b)
+		dec := gob.NewDecoder(buffer)
+		var value T
+		err := dec.Decode(&value)
+		return value, err
+	})
 }

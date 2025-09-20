@@ -53,7 +53,7 @@ func handlerMove(gs *gamelogic.GameState, channel *amqp.Channel) func(gamelogic.
 
 func handlerWar(gs *gamelogic.GameState, channel *amqp.Channel) func(gamelogic.RecognitionOfWar) pubsub.AckType {
 	return func(row gamelogic.RecognitionOfWar) pubsub.AckType {
-		defer fmt.Println("> ")
+		defer fmt.Print("> ")
 
 		outcome, winner, loser := gs.HandleWar(row)
 		username := row.Attacker.Username

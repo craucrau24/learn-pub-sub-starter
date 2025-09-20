@@ -22,14 +22,25 @@ func main() {
 	defer conn.Close()
 	fmt.Println("RabbitMQ connection successful.")
 
-	// channel, err := conn.Channel()
-	// if err != nil {
-	// 	log.Fatalf("Couldn't create channel: %v\n", err)
-	// }
-	
-	channel, _, err := pubsub.DeclareAndBind(conn, routing.ExchangePerilTopic, routing.GameLogSlug, fmt.Sprintf("%s.*", routing.GameLogSlug), pubsub.DurableQueueType)
+	channel, err := conn.Channel()
 	if err != nil {
-		log.Fatalf("Couldn't create %s queue: %v\n", routing.GameLogSlug, err)
+		log.Fatalf("Couldn't create channel: %v\n", err)
+	}
+	
+	// channel, _, err := pubsub.DeclareAndBind(conn, routing.ExchangePerilTopic, routing.GameLogSlug, fmt.Sprintf("%s.*", routing.GameLogSlug), pubsub.DurableQueueType)
+	// if err != nil {
+	// 	log.Fatalf("Couldn't create %s queue: %v\n", routing.GameLogSlug, err)
+	// }
+
+	err = pubsub.SubscribeGob(conn, routing.ExchangePerilTopic, routing.GameLogSlug, fmt.Sprintf("%s.*", routing.GameLogSlug), pubsub.DurableQueueType,
+	 func(log routing.GameLog) pubsub.AckType {
+		defer fmt.Print("> ")
+		gamelogic.WriteLog(log)
+		return pubsub.Ack
+	 })
+
+	if err != nil {
+		log.Fatalf("Couldn't subscribe to game_logs key: %v\n", err)
 	}
 
 	gamelogic.PrintServerHelp()
